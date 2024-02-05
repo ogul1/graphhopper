@@ -218,7 +218,7 @@ public class DirectionResolver {
     private static class AdjacentEdges {
         private final Map<Point, List<Edge>> inEdgesByNextPoint = new HashMap<>(2);
         private final Map<Point, List<Edge>> outEdgesByNextPoint = new HashMap<>(2);
-        final Set<Point> nextPoints = new HashSet<>(2);
+        final Set<Point> nextPoints = new LinkedHashSet<>(2);
         int numStandardEdges;
         int numZeroDistanceEdges;
 
