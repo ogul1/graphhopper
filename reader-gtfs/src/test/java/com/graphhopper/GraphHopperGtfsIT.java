@@ -56,15 +56,16 @@ public class GraphHopperGtfsIT {
     public static void init() {
         GraphHopperConfig ghConfig = new GraphHopperConfig();
         ghConfig.putObject("graph.location", GRAPH_LOC);
+        ghConfig.putObject("import.osm.ignored_highways", "");
         ghConfig.putObject("gtfs.file", "files/sample-feed");
         ghConfig.setProfiles(Arrays.asList(
-                new Profile("foot").setVehicle("foot").setWeighting("fastest"),
-                new Profile("car").setVehicle("car").setWeighting("fastest")));
+                new Profile("foot").setVehicle("foot"),
+                new Profile("car").setVehicle("car")));
         Helper.removeDir(new File(GRAPH_LOC));
         graphHopperGtfs = new GraphHopperGtfs(ghConfig);
         graphHopperGtfs.init(ghConfig);
         graphHopperGtfs.importOrLoad();
-        ptRouter = PtRouterImpl.createFactory(ghConfig, new TranslationMap().doImport(), graphHopperGtfs, graphHopperGtfs.getLocationIndex(), graphHopperGtfs.getGtfsStorage())
+        ptRouter = new PtRouterImpl.Factory(ghConfig, new TranslationMap().doImport(), graphHopperGtfs.getBaseGraph(), graphHopperGtfs.getEncodingManager(), graphHopperGtfs.getLocationIndex(), graphHopperGtfs.getGtfsStorage())
                 .createWithoutRealtimeFeed();
     }
 
@@ -169,7 +170,7 @@ public class GraphHopperGtfsIT {
         // At 10:00 (end of profile time window), the departure at 10:04 is optimal.
         // This is hairy, it's easy to confuse this and 09:54 becomes the last option.
         List<LocalTime> expectedDepartureTimes = Stream.of(
-                "06:44", "07:14", "07:44", "08:14", "08:44", "08:54", "09:04", "09:14", "09:24", "09:34", "09:44", "09:54", "10:04")
+                        "06:44", "07:14", "07:44", "08:14", "08:44", "08:54", "09:04", "09:14", "09:24", "09:34", "09:44", "09:54", "10:04")
                 .map(LocalTime::parse)
                 .collect(Collectors.toList());
         assertEquals(expectedDepartureTimes, actualDepartureTimes);
@@ -192,7 +193,7 @@ public class GraphHopperGtfsIT {
         // Find exactly the next departure, tomorrow. It departs outside the profile time window, but there is no
         // walk alternative, so this remains the best solution for the entire time window.
         List<LocalTime> expectedDepartureTimes = Stream.of(
-                "06:44")
+                        "06:44")
                 .map(LocalTime::parse)
                 .collect(Collectors.toList());
         assertEquals(expectedDepartureTimes, actualDepartureTimes);
@@ -214,7 +215,7 @@ public class GraphHopperGtfsIT {
                 .map(path -> LocalTime.from(path.getLegs().get(0).getDepartureTime().toInstant().atZone(zoneId)))
                 .collect(Collectors.toList());
         List<LocalTime> expectedDepartureTimes = Stream.of(
-                "12:44", "12:14", "11:44", "11:14")
+                        "12:44", "12:14", "11:44", "11:14")
                 .map(LocalTime::parse)
                 .collect(Collectors.toList());
         assertEquals(expectedDepartureTimes, actualDepartureTimes);
@@ -384,6 +385,7 @@ public class GraphHopperGtfsIT {
 
     @Test
     public void testPenalizeRouteTypes() {
+        // Baseline
         Request ghRequest = new Request(Arrays.asList(
                 new GHStationLocation("AMV"),
                 new GHStationLocation("FUR_CREEK_RES")),
@@ -393,6 +395,7 @@ public class GraphHopperGtfsIT {
         assertEquals("AB", ((Trip.PtLeg) mondayTrip.getLegs().get(1)).route_id);
         assertEquals(22800000.0, mondayTrip.getRouteWeight());
 
+        // Boarding and transferring out of disliked route type, penalty is applied, but not high enough to divert
         ghRequest = new Request(Arrays.asList(
                 new GHStationLocation("BEATTY_AIRPORT"),
                 new GHStationLocation("FUR_CREEK_RES")),
@@ -403,6 +406,28 @@ public class GraphHopperGtfsIT {
         assertEquals("AB", ((Trip.PtLeg) mondayTrip.getLegs().get(0)).route_id);
         assertEquals(22900000.0, mondayTrip.getRouteWeight());
 
+        // Baseline when getting off at BULLFROG (no transfer)
+        ghRequest = new Request(Arrays.asList(
+                new GHStationLocation("BEATTY_AIRPORT"),
+                new GHStationLocation("BULLFROG")),
+                LocalDateTime.of(2007, 1, 7, 9, 0).atZone(zoneId).toInstant());
+        response = ptRouter.route(ghRequest);
+        mondayTrip = response.getBest();
+        assertEquals("AB", ((Trip.PtLeg) mondayTrip.getLegs().get(0)).route_id);
+        assertEquals(18600000.0, mondayTrip.getRouteWeight());
+
+        // Board and exit disliked route type directly. Penalty applied, not high enough to divert
+        ghRequest = new Request(Arrays.asList(
+                new GHStationLocation("BEATTY_AIRPORT"),
+                new GHStationLocation("BULLFROG")),
+                LocalDateTime.of(2007, 1, 7, 9, 0).atZone(zoneId).toInstant());
+        ghRequest.setBoardingPenaltiesByRouteType(Maps.newHashMap(2, 100000L));
+        response = ptRouter.route(ghRequest);
+        mondayTrip = response.getBest();
+        assertEquals("AB", ((Trip.PtLeg) mondayTrip.getLegs().get(0)).route_id);
+        assertEquals(18700000.0, mondayTrip.getRouteWeight());
+
+        // Would board disliked route type and then transfer, penalty is high, so we divert
         ghRequest = new Request(Arrays.asList(
                 new GHStationLocation("BEATTY_AIRPORT"),
                 new GHStationLocation("FUR_CREEK_RES")),
@@ -412,6 +437,7 @@ public class GraphHopperGtfsIT {
         mondayTrip = response.getBest();
         assertNotEquals("AB", ((Trip.PtLeg) mondayTrip.getLegs().get(0)).route_id);
 
+        // Would transfer in and out, penalty is high, so we divert
         ghRequest = new Request(Arrays.asList(
                 new GHStationLocation("AMV"),
                 new GHStationLocation("FUR_CREEK_RES")),
@@ -420,6 +446,17 @@ public class GraphHopperGtfsIT {
         response = ptRouter.route(ghRequest);
         mondayTrip = response.getBest();
         assertNotEquals("AB", ((Trip.PtLeg) mondayTrip.getLegs().get(1)).route_id);
+
+        // Transferring in and out, penalty is applied, but not high enough to divert
+        ghRequest = new Request(Arrays.asList(
+                new GHStationLocation("AMV"),
+                new GHStationLocation("FUR_CREEK_RES")),
+                LocalDateTime.of(2007, 1, 7, 9, 0).atZone(zoneId).toInstant());
+        ghRequest.setBoardingPenaltiesByRouteType(Maps.newHashMap(2, 100000L));
+        response = ptRouter.route(ghRequest);
+        mondayTrip = response.getBest();
+        assertEquals("AB", ((Trip.PtLeg) mondayTrip.getLegs().get(1)).route_id);
+        assertEquals(22900000.0, mondayTrip.getRouteWeight());
     }
 
     @Test

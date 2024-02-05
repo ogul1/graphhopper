@@ -18,9 +18,7 @@
 package com.graphhopper.storage;
 
 import java.io.File;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 import static com.graphhopper.storage.DAType.RAM_INT;
 import static com.graphhopper.storage.DAType.RAM_INT_STORE;
@@ -37,7 +35,7 @@ public class GHDirectory implements Directory {
     // first rule matches => LinkedHashMap
     private final Map<String, DAType> defaultTypes = new LinkedHashMap<>();
     private final Map<String, Integer> mmapPreloads = new LinkedHashMap<>();
-    protected Map<String, DataAccess> map = new HashMap<>();
+    private final Map<String, DataAccess> map = Collections.synchronizedMap(new HashMap<>());
 
     public GHDirectory(String _location, DAType defaultType) {
         this.typeFallback = defaultType;
@@ -59,7 +57,7 @@ public class GHDirectory implements Directory {
      * the specified percentage (only applied for load, not for import).
      * As keys can be patterns the order is important and the LinkedHashMap is forced as type.
      */
-    public void configure(LinkedHashMap<String, String> config) {
+    public Directory configure(LinkedHashMap<String, String> config) {
         for (Map.Entry<String, String> kv : config.entrySet()) {
             String value = kv.getValue().trim();
             if (kv.getKey().startsWith("preload."))
@@ -74,6 +72,7 @@ public class GHDirectory implements Directory {
                 defaultTypes.put(pattern, DAType.fromString(value));
             }
         }
+        return this;
     }
 
     /**
@@ -215,5 +214,10 @@ public class GHDirectory implements Directory {
     @Override
     public String getLocation() {
         return location;
+    }
+
+    @Override
+    public Map<String, DataAccess> getDAs() {
+        return map;
     }
 }

@@ -17,13 +17,13 @@
  */
 package com.graphhopper.routing;
 
+import com.graphhopper.routing.util.DirectedEdgeFilter;
 import com.graphhopper.storage.Graph;
 import com.graphhopper.storage.NodeAccess;
 import com.graphhopper.util.*;
 import com.graphhopper.util.shapes.GHPoint;
 
 import java.util.*;
-import java.util.function.BiPredicate;
 
 /**
  * This class is used to determine the pairs of edges that go into/out of a node of the routing graph. Two such pairs
@@ -52,9 +52,9 @@ import java.util.function.BiPredicate;
 public class DirectionResolver {
     private final EdgeExplorer edgeExplorer;
     private final NodeAccess nodeAccess;
-    private final BiPredicate<EdgeIteratorState, Boolean> isAccessible;
+    private final DirectedEdgeFilter isAccessible;
 
-    public DirectionResolver(Graph graph, BiPredicate<EdgeIteratorState, Boolean> isAccessible) {
+    public DirectionResolver(Graph graph, DirectedEdgeFilter isAccessible) {
         this.edgeExplorer = graph.createEdgeExplorer();
         this.nodeAccess = graph.getNodeAccess();
         this.isAccessible = isAccessible;
@@ -75,9 +75,6 @@ public class DirectionResolver {
         }
         if (adjacentEdges.nextPoints.isEmpty()) {
             return DirectionResolverResult.impossible();
-        }
-        if (adjacentEdges.numLoops > 0) {
-            return DirectionResolverResult.unrestricted();
         }
         if (adjacentEdges.numZeroDistanceEdges > 0) {
             // if we snap to a tower node that is adjacent to a barrier edge we apply no restrictions. this is the
@@ -179,8 +176,8 @@ public class DirectionResolver {
         AdjacentEdges adjacentEdges = new AdjacentEdges();
         EdgeIterator iter = edgeExplorer.setBaseNode(node);
         while (iter.next()) {
-            boolean isIn = isAccessible.test(iter, true);
-            boolean isOut = isAccessible.test(iter, false);
+            boolean isIn = isAccessible.accept(iter, true);
+            boolean isOut = isAccessible.accept(iter, false);
             if (!isIn && !isOut)
                 continue;
             // we are interested in the coordinates of the next point on this edge, it could be the adj tower node
@@ -209,9 +206,7 @@ public class DirectionResolver {
             Edge edge = new Edge(iter.getEdge(), iter.getAdjNode(), nextPoint);
             adjacentEdges.addEdge(edge, isIn, isOut);
 
-            if (iter.getBaseNode() == iter.getAdjNode())
-                adjacentEdges.numLoops++;
-            else if (isZeroDistanceEdge)
+            if (isZeroDistanceEdge)
                 adjacentEdges.numZeroDistanceEdges++;
             else
                 adjacentEdges.numStandardEdges++;
@@ -224,7 +219,6 @@ public class DirectionResolver {
         private final Map<Point, List<Edge>> inEdgesByNextPoint = new HashMap<>(2);
         private final Map<Point, List<Edge>> outEdgesByNextPoint = new HashMap<>(2);
         final Set<Point> nextPoints = new LinkedHashSet<>(2);
-        int numLoops;
         int numStandardEdges;
         int numZeroDistanceEdges;
 

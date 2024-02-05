@@ -20,7 +20,6 @@ package com.graphhopper.routing.weighting;
 
 import com.carrotsearch.hppc.IntArrayList;
 import com.graphhopper.routing.querygraph.QueryGraph;
-import com.graphhopper.routing.util.FlagEncoder;
 import com.graphhopper.util.EdgeIterator;
 import com.graphhopper.util.EdgeIteratorState;
 
@@ -43,8 +42,8 @@ public class QueryGraphWeighting implements Weighting {
     }
 
     @Override
-    public double getMinWeight(double distance) {
-        return weighting.getMinWeight(distance);
+    public double calcMinWeightPerDistance() {
+        return weighting.calcMinWeightPerDistance();
     }
 
     @Override
@@ -97,11 +96,6 @@ public class QueryGraphWeighting implements Weighting {
     @Override
     public boolean hasTurnCosts() {
         return weighting.hasTurnCosts();
-    }
-
-    @Override
-    public FlagEncoder getFlagEncoder() {
-        return weighting.getFlagEncoder();
     }
 
     @Override
